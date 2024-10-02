@@ -20,6 +20,6 @@ public class ABCController {
 
     @GetMapping("/call-xyz")
     public ResponseEntity<String> callXYZ() throws JsonProcessingException {
-        return  service.abcService();
+        return  service.callXyzService();
     }
 }
