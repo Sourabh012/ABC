@@ -2,16 +2,17 @@ package com.example.ABC.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-
 import org.example.exception.CustomException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
+
+import java.util.Iterator;
+import java.util.Map;
 
 @Service
 public class MyService {
@@ -20,65 +21,88 @@ public class MyService {
     @Autowired
     private RestTemplate restTemplate;
 
-    public ResponseEntity<String> callXyzService() {
+    public ResponseEntity<String> callXyzService() throws CustomException {
         String xyzUrl = "http://localhost:8081/perform-operation"; // Replace with actual XYZ endpoint
+        ResponseEntity<String> response;
+
         try {
-            ResponseEntity<String> response = restTemplate.getForEntity(xyzUrl, String.class);
+            response = restTemplate.getForEntity(xyzUrl, String.class);
 
-            // If HTTP status is 200, check the response body
-            if (response.getStatusCode().is2xxSuccessful()) {
-                // Extract statusCode if present
-                String statusCode = extractStatusCode(response.getBody());
+            // Extract statusCode if present
+            String statusCode = extractStatusCode(response.getBody());
 
-                if (statusCode != null) {
-                    // Check if statusCode is not 0 or 1
-                    if (!"0".equals(statusCode) && !"1".equals(statusCode)) {
-                        logger.error("Invalid status code: {}", statusCode);
-                        // Convert HttpStatusCode to HttpStatus and throw custom exception
-                        HttpStatus httpStatus = HttpStatus.valueOf(response.getStatusCode().value());
-                        throw new CustomException(response.getBody(), httpStatus);
-                    } else {
-                        // Placeholder for your future implementation
-                        logger.info("Valid status code (0 or 1): Placeholder for future code");
-                        return new ResponseEntity<>(response.getBody(), response.getStatusCode());
-                    }
-                } else {
-                    // If statusCode is not present, throw custom exception
-                    logger.warn("No statusCode found in response. Throwing custom exception.");
+            if (statusCode != null) {
+                if (!"0".equals(statusCode) && !"1".equals(statusCode)) {
+                    logger.error("Invalid status code: {}", statusCode);
                     HttpStatus httpStatus = HttpStatus.valueOf(response.getStatusCode().value());
-                    throw new CustomException(response.getBody(), httpStatus);
+                    HttpHeaders headers = response.getHeaders(); // Extract headers from XYZ response
+                    throw new CustomException(response.getBody(), httpStatus, headers); // Pass headers to CustomException
+                } else {
+                    logger.info("Valid status code (0 or 1): Returning response as-is.");
+
+                    // Return response body and headers from XYZ service
+                    HttpHeaders headers = response.getHeaders();
+                    return new ResponseEntity<>(response.getBody(), headers, response.getStatusCode());
                 }
             } else {
-                // If HTTP status is not 200, throw an error
+                logger.warn("No statusCode found in response. Throwing custom exception.");
                 HttpStatus httpStatus = HttpStatus.valueOf(response.getStatusCode().value());
-                throw new HttpStatusCodeException(httpStatus, response.getBody()) {};
+                HttpHeaders headers = response.getHeaders(); // Extract headers
+                throw new CustomException(response.getBody(), httpStatus, headers); // Pass headers to CustomException
             }
         } catch (HttpStatusCodeException ex) {
-            // This will be handled in the global exception handler
-            throw ex;
+            String responseBody = ex.getResponseBodyAsString();
+            HttpStatus httpStatus = (HttpStatus) ex.getStatusCode();
+            HttpHeaders headers = ex.getResponseHeaders(); // Extract headers from exception
+            logger.error("Received {} from the XYZ service: {}", httpStatus, responseBody);
+            throw new CustomException(responseBody, httpStatus, headers); // Pass headers to CustomException
         }
     }
 
-    /**
-     * Helper method to extract 'statusCode' from the response body.
-     */
     private String extractStatusCode(String responseBody) {
         try {
             ObjectMapper objectMapper = new ObjectMapper();
             JsonNode rootNode = objectMapper.readTree(responseBody);
 
-            // Navigate to the 'statusCode' field, if present
-            JsonNode statusCodeNode = rootNode.at("/getExtendedServiceAuthorizationResponse/status/statusCode");
-
-            if (!statusCodeNode.isMissingNode()) {
+            JsonNode statusCodeNode = findStatusCodeField(rootNode);
+            if (statusCodeNode != null && statusCodeNode.isTextual()) {
+                return statusCodeNode.asText();
+            } else if (statusCodeNode != null && statusCodeNode.isNumber()) {
                 return statusCodeNode.asText();
             } else {
-                logger.warn("statusCode not found in the response.");
                 return null;
             }
         } catch (Exception e) {
             logger.error("Error while extracting statusCode: {}", e.getMessage());
             return null;
         }
+    }
+
+    private JsonNode findStatusCodeField(JsonNode node) {
+        if (node.has("statusCode")) {
+            return node.get("statusCode");
+        }
+
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                JsonNode result = findStatusCodeField(field.getValue());
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+
+        if (node.isArray()) {
+            for (JsonNode arrayElement : node) {
+                JsonNode result = findStatusCodeField(arrayElement);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+
+        return null;
     }
 }
