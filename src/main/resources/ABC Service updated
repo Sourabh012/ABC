@@ -1,0 +1,149 @@
+package com.example.ABC.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+
+import org.example.exception.CustomException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.Iterator;
+import java.util.Map;
+
+@Service
+public class MyService {
+    private static final Logger logger = LoggerFactory.getLogger(MyService.class);
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    public ResponseEntity<String> callXyzService() throws CustomException {
+        String xyzUrl = "http://localhost:8081/perform-operation"; // Replace with actual XYZ endpoint
+        ResponseEntity<String> response = null;
+
+        try {
+            response = restTemplate.getForEntity(xyzUrl, String.class);
+
+            // Extract statusCode if present
+            String statusCode = extractStatusCode(response.getBody());
+
+            if (statusCode != null) {
+                // Check if statusCode is not 0 or 1
+                if (!"0".equals(statusCode) && !"1".equals(statusCode)) {
+                    logger.error("Invalid status code: {}", statusCode);
+                    // Convert HttpStatusCode to HttpStatus and throw custom exception
+                    HttpStatus httpStatus = HttpStatus.valueOf(response.getStatusCode().value());
+                    throw new CustomException(response.getBody(), httpStatus);
+                } else {
+                    // Placeholder for your future implementation
+                    logger.info("Valid status code (0 or 1): Placeholder for future code");
+                    return new ResponseEntity<>(response.getBody(), response.getStatusCode());
+                }
+            } else {
+                // If statusCode is not present, throw custom exception
+                logger.warn("No statusCode found in response. Throwing custom exception.");
+                HttpStatus httpStatus = HttpStatus.valueOf(response.getStatusCode().value());
+                throw new CustomException(response.getBody(), httpStatus);
+            }
+        } catch (HttpStatusCodeException ex) {
+            // Handle non-2xx responses and throw custom exception
+            String responseBody = ex.getResponseBodyAsString();
+            HttpStatus httpStatus = (HttpStatus) ex.getStatusCode();
+            logger.error("Received {} from the XYZ service: {}", httpStatus, responseBody);
+            throw new CustomException(responseBody, httpStatus);
+        }
+    }
+
+    
+    private String extractStatusCode(String responseBody) {
+        try {
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode rootNode = objectMapper.readTree(responseBody);
+
+            // Recursively search for the 'statusCode' field in the JSON structure
+            JsonNode statusCodeNode = findStatusCodeField(rootNode);
+
+            if (statusCodeNode != null && statusCodeNode.isTextual()) {
+                logger.info("Found statusCode: {}", statusCodeNode.asText());
+                return statusCodeNode.asText();
+            } else if (statusCodeNode != null && statusCodeNode.isNumber()) {
+                logger.info("Found statusCode: {}", statusCodeNode.asText());
+                return statusCodeNode.asText();
+            } else {
+                logger.warn("No statusCode field found in the response.");
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Error while extracting statusCode: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Recursively search for the 'statusCode' field in the entire JSON structure.
+     * @param node the root node to start searching from
+     * @return the JsonNode containing the 'statusCode' field, or null if not found
+     */
+    private JsonNode findStatusCodeField(JsonNode node) {
+        if (node.has("statusCode")) {
+            return node.get("statusCode");
+        }
+
+        // Traverse recursively if the node is an object
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> field = fields.next();
+                JsonNode result = findStatusCodeField(field.getValue());
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+
+        // Traverse recursively if the node is an array
+        if (node.isArray()) {
+            for (JsonNode arrayElement : node) {
+                JsonNode result = findStatusCodeField(arrayElement);
+                if (result != null) {
+                    return result;
+                }
+            }
+        }
+
+        // If 'statusCode' is not found, return null
+        return null;
+    }
+
+
+
+//    /**
+//     * Helper method to extract 'statusCode' from the response body.
+//     */
+//    private String extractStatusCode(String responseBody) {
+//        try {
+//            ObjectMapper objectMapper = new ObjectMapper();
+//            JsonNode rootNode = objectMapper.readTree(responseBody);
+//
+//            // Navigate to the 'statusCode' field, if present
+//            JsonNode statusCodeNode = rootNode.at("/getExtendedServiceAuthorizationResponse/status/statusCode");
+//
+//            if (!statusCodeNode.isMissingNode()) {
+//                return statusCodeNode.asText();
+//            } else {
+//                logger.warn("statusCode not found in the response.");
+//                return null;
+//            }
+//        } catch (Exception e) {
+//            logger.error("Error while extracting statusCode: {}", e.getMessage());
+//            return null;
+//        }
+//    }
+}
